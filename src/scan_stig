@@ -1,0 +1,172 @@
+#!/bin/env python3
+
+###############################################################################################
+import sys
+import argparse
+import traceback
+
+###############################################################################################
+PROPS = []
+VERBOSE = False
+
+###############################################################################################
+
+def load_props():
+    """
+    Execute scan and print scan report in the output
+    """
+
+    props = []
+
+    print(f"load_props : {props}")
+
+    return props
+
+###############################################################################################
+
+def run_scan():
+    """
+    Execute scan and print scan report in the output
+    """
+    print(f"run_scan")
+
+    rc = 0
+
+    return rc
+
+###############################################################################################
+
+def list_scans():
+    """
+    List history of executed scans printing scan ids
+    """
+    print(f"list_scans")
+
+    rc = 0
+
+    return rc
+
+###############################################################################################
+
+def print_scan(cmd_args):
+    """
+    Print scan report by scan id available from the history
+    """
+    print(f"print_scan : {cmd_args}")
+
+    rc = 0
+
+    return rc
+
+###############################################################################################
+
+def compare_scans(cmd_args):
+    """
+    Compare two scan reports available from the history by scan ids.
+    Print following:
+        Summary statistics for scan 1 (id/total/passed/failed)
+        Summary statistics for scan 2 (id/total/passed/failed)
+        Summary statistics for fixed/introduced results diff between scan 1 and scan 2
+    """
+    print(f"compare_scans : {cmd_args}")
+
+    rc = 0
+
+    return rc
+
+###############################################################################################
+
+def main(args):
+    """
+    Main program
+    """
+    global VERBOSE
+    global PROPS
+
+    # Process tool arguments
+    description = """
+Command line tool for regular "openscap" scans of the Oracle Linux 8 system using
+available "stig" profile from the "scap-security-guide" package.
+"""
+
+    epilog = """
+The following commands are supported:
+
+    scan
+       Execute scan and print scan report in the standard output.
+
+    list
+       List history of executed scans.
+
+    print [scan report]
+       Print given scan report.
+
+    compare [scan report 1, scan report 2]
+       Compare two given scan reports.
+       
+
+"""
+
+    parser = argparse.ArgumentParser(description = description[1:],
+                                     epilog = epilog[1:],
+                                     formatter_class=argparse.RawDescriptionHelpFormatter,
+                                     add_help = False)
+
+    parser.add_argument("-h", "--help", action="help", default=argparse.SUPPRESS,
+                        help="Show this help message and exit")
+
+    parser.add_argument("-v", "--verbose", default=False, action='store_true',
+                        help="Verbose (print extra useful information)")
+
+    parser.add_argument("cmd", nargs=1,
+                        help="Supported commands")
+
+    parser.add_argument("cmd_args", nargs="*",
+                        help="Arguments for the command if needed")
+
+    if not args:
+        parser.print_usage()
+        print("\nUse the -h or --help flag for more detailed information")
+        return 1
+
+    settings = parser.parse_args(args=args)
+
+    if not settings.cmd:
+        print("No command provided")
+        return 1
+
+    if settings.verbose:
+        VERBOSE = settings.verbose
+
+    # Read the properties
+    PROPS = load_props()
+
+    # Handle the command
+    cmd = settings.cmd[0]
+    rc = 0
+
+    if cmd == "scan":
+        rc = run_scan()
+    elif cmd == "list":
+        rc = list_scans()
+    elif cmd == "print":
+        rc = print_scan(settings.cmd_args)
+    elif cmd == "compare":
+        rc = compare_scans(settings.cmd_args)
+    else:
+        print(f"Unknown command {cmd}")
+        rc = 1
+
+    return rc
+
+###############################################################################################
+
+if __name__ == '__main__':
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except Exception:
+        print(f"Error while running {sys.argv[0]}")
+        traceback.print_exc()
+        sys.exit(99)
+
+###############################################################################################
