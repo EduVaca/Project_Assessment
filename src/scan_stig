@@ -1,26 +1,182 @@
 #!/bin/env python3
 
 ###############################################################################################
+import os
 import sys
+import glob
 import argparse
 import traceback
+import subprocess
+
+from datetime import datetime
+from oscap.scan.report import Report
 
 ###############################################################################################
-PROPS = []
 VERBOSE = False
 
+SCAP_SEC_TOOL = "scap-security-guide"
+STIG_PROFILE = "xccdf_org.ssgproject.content_profile_stig"
+DATA_STREAM_LOC = "/usr/share/xml/scap/ssg/content/ssg-ol8-ds.xml"
+SCAN_STIG_HOME_DIR = "~/.scan_stig"
+
+
 ###############################################################################################
 
-def load_props():
+def get_results():
     """
-    Execute scan and print scan report in the output
+    Helper function to get a list of available reults
+    """
+    return glob.glob(f"{os.path.expanduser(SCAN_STIG_HOME_DIR)}/result_*.xml")
+
+###############################################################################################
+
+def print_scan_compare_summary(report1, report2):
+    """
+    Print a compare summary of two existing oscap report
     """
 
-    props = []
+    if VERBOSE:
+        print("print_scan_compare_summary")
 
-    print(f"load_props : {props}")
+    rules1 = report1.get_raw_executed_rules()
+    rules2 = report2.get_raw_executed_rules()
 
-    return props
+    print("\nSummary statistics")
+    # Get rules that only lives in the first report
+    print("\n\tExtra rules ID 1")
+    check = 1
+    for rule in rules1:
+        if not rule in rules2:
+            print(f"\t\tRule\t: {rule}")
+            check = 0
+    if check:
+        print("\t\tNone")
+        check = 1
+    
+    # Get rules that only lives in the second report
+    print("\n\tExtra rules ID 2")
+    for rule in rules2:
+        if not rule in rules1:
+            print(f"\t\tRule\t: {rule}")
+            check = 0
+    if check:
+        print("\t\tNone")
+        check = 1
+    
+    # Get rules that lives in both reports with different results
+    print("\n\tUnmatching results for the same rule")
+    for rule in rules1:
+        if rule in rules2 and rules1[rule] != rules2[rule]:
+            print(f"\t\tRule\t: {rule}")
+            print(f"\t\tID 1\t: {rules1[rule]}")
+            print(f"\t\tID 2\t: {rules2[rule]}")
+            print()
+    if check:
+        print("\t\tNone")
+        check = 1
+
+###############################################################################################
+
+def print_scan_summary(scan_id_file, label=""):
+    """
+    Print a summary of an existing oscap report
+    """
+
+    if VERBOSE:
+        print("print_scan_summary")
+
+    report = Report(scan_id_file)
+
+    print(f"\nSummary statistics {label}")
+    print(f"\n\tID\t\t: {report}")
+    print(f"\tDate\t\t: {report.get_scan_date()}")
+    print(f"\tSystem Score\t: {report.get_score()}")
+    print(f"\tTotal Rules\t: {report.get_executed_rules()}")
+    print(f"\t\tPassed\t: {report.get_passed_rules()}")
+    print(f"\t\tFailed\t: {report.get_failed_rules()}")
+
+    return report
+
+###############################################################################################
+
+def get_new_scan_id():
+    """
+    Get from configuration directory the latest scan ID plus one and return it
+    """
+
+    if VERBOSE:
+        print("get_last_scan_id")
+
+    results = []
+    for result in get_results():
+        # Get the ID only and convert it do interger so we can sort the list
+        try:
+            number = int(result[-8:-4])
+            results.append(number)
+        except Exception as excep:
+            if VERBOSE:
+                print(f"Exception parsing the following report: {result}")
+                print(excep)
+
+
+    if results:
+        # Sort reverse the list and get the first element, then sum one and fill it with
+        # zeros so it can be taken as the full ID
+        results.sort(reverse=True)
+        last_id = results[0] + 1
+        return str(last_id).zfill(4)
+
+    return "0000"
+
+###############################################################################################
+
+def validate_system():
+    """
+    Checks if all needed packages to run this tool are available
+    """
+
+    if VERBOSE:
+        print("validate_system")
+
+    # Check for scap-security-guide suit which depens on oscap
+    rc = subprocess.call(
+        ["rpm", "-q", SCAP_SEC_TOOL],
+        stdout = (subprocess.DEVNULL if not VERBOSE else None),
+        stderr = (subprocess.DEVNULL if not VERBOSE else None)
+    )
+
+    if rc != 0:
+        print(f"Package {SCAP_SEC_TOOL} is not installed")
+        return 1
+
+    # Check for Oracle Linux Server 8
+    is_ol8 = False
+    with open("/etc/os-release", "r") as file:
+        is_ol8 = False
+        for line in file:
+            if "platform:el8" in line:
+                if VERBOSE:
+                    print(f"validate_system : {line}")
+                is_ol8 = True
+                break
+
+    if is_ol8 is False:
+        print("This tool is designed for Oracle Linux Server 8")
+        return 1
+
+    return rc
+
+###############################################################################################
+
+def set_environment():
+    """
+    Prepare the system for execution
+    """
+
+    if VERBOSE:
+        print("set_environment")
+
+    os.makedirs(os.path.expanduser(SCAN_STIG_HOME_DIR), exist_ok=True)
 
 ###############################################################################################
 
@@ -28,9 +184,45 @@ def run_scan():
     """
     Execute scan and print scan report in the output
     """
-    print(f"run_scan")
+    if VERBOSE:
+        print("run_scan")
 
-    rc = 0
+    scan_id = get_new_scan_id()
+
+    # Get the starting date
+    now = datetime.now().strftime("%d%m%Y%H%M%S")
+
+    # Let oscap remove the files if they already exists
+    tmp_result = f"/tmp/result_{now}{scan_id}.xml"
+    tmp_report = f"/tmp/report_{now}{scan_id}.html"
+
+    print(f"Generating scan ID {now}{scan_id}")
+    # Form the command to scan the system using the STIG profile
+    cmd = [
+        "oscap", "xccdf", "eval", "--profile", STIG_PROFILE, 
+        "--results", tmp_result, "--report", tmp_report, DATA_STREAM_LOC
+    ]
+
+    # We don't care about STDOUT/
+    rc = subprocess.call(cmd,
+        stdout = (subprocess.DEVNULL if not VERBOSE else None),
+        stderr = (subprocess.DEVNULL if not VERBOSE else None)
+    )
+
+    # All rules passed
+    if rc == 0:
+        print(f"All rules defined for {STIG_PROFILE} were passed")
+    # Something went wrong during evaluation
+    elif rc == 1:
+        print("oscap evaluation went wrong")
+    # Rules failed or unknown results
+    else:
+        print(f"Some rules defined for {STIG_PROFILE} were not passed")
+
+    # Save scan
+    if rc != 1:
+        os.rename(tmp_result, tmp_result.replace("/tmp", os.path.expanduser(SCAN_STIG_HOME_DIR)))
+        os.rename(tmp_report, tmp_report.replace("/tmp", os.path.expanduser(SCAN_STIG_HOME_DIR)))
 
     return rc
 
@@ -40,27 +232,53 @@ def list_scans():
     """
     List history of executed scans printing scan ids
     """
-    print(f"list_scans")
+    if VERBOSE:
+        print("list_scans")
 
     rc = 0
+    results = []
+
+    for result in get_results():
+        # Get the ID only and convert it do interger so we can sort the list
+        try:
+            results.append(result[-22:-4])
+        except Exception as excep:
+            if VERBOSE:
+                print(f"Exception parsing the following report: {result}")
+                print(excep)
+
+    if results:
+        print(f"{len(results)} scan IDs were found:")
+        results.sort()
+        for result in results:
+            print(f"\t{result}")
+    else:
+        print("Scans not found")
 
     return rc
 
 ###############################################################################################
 
-def print_scan(cmd_args):
+def print_scan(scan_id):
     """
     Print scan report by scan id available from the history
     """
-    print(f"print_scan : {cmd_args}")
+    if VERBOSE:
+        print(f"print_scan : {scan_id}")
 
-    rc = 0
+    rc = 1
 
+    for result in get_results():
+        if scan_id in result:
+            print_scan_summary(result)
+            return 0
+
+    print(f"Scan id {scan_id} was not found")
     return rc
 
 ###############################################################################################
 
-def compare_scans(cmd_args):
+def compare_scans(scan_id1, scan_id2):
     """
     Compare two scan reports available from the history by scan ids.
     Print following:
@@ -68,11 +286,32 @@ def compare_scans(cmd_args):
         Summary statistics for scan 2 (id/total/passed/failed)
         Summary statistics for fixed/introduced results diff between scan 1 and scan 2
     """
-    print(f"compare_scans : {cmd_args}")
+    if VERBOSE:
+        print(f"compare_scans : {scan_id1} {scan_id2}")
 
-    rc = 0
+    result1 = ""
+    result2 = ""
 
-    return rc
+    for result in get_results():
+        if scan_id1 in result:
+            result1 = result
+        if scan_id2 in result:
+            result2 = result
+
+    if not result1:
+        print(f"Scan id {scan_id1} was not found")
+        return 1
+    if not result2:
+        print(f"Scan id {scan_id2} was not found")
+        return 1
+
+    report1 = print_scan_summary(result1, "ID 1")
+    report2 = print_scan_summary(result2, "ID 2")
+
+    # Make the magic here for both reports
+    print_scan_compare_summary(report1, report2)
+    return 0
+
 
 ###############################################################################################
 
@@ -81,7 +320,6 @@ def main(args):
     Main program
     """
     global VERBOSE
-    global PROPS
 
     # Process tool arguments
     description = """
@@ -95,11 +333,15 @@ The following commands are supported:
     scan
        Execute scan and print scan report in the standard output.
 
+       Reports are linked to a given scan ID provided in the standard output
+
     list
        List history of executed scans.
 
     print [scan report]
-       Print given scan report.
+       Print a given scan ID report.
+
+       Scan ID is numeric string with 18 numbers as follows : date|time|consecutive
 
     compare [scan report 1, scan report 2]
        Compare two given scan reports.
@@ -138,21 +380,52 @@ The following commands are supported:
     if settings.verbose:
         VERBOSE = settings.verbose
 
-    # Read the properties
-    PROPS = load_props()
+    # Check for dependencies
+    rc = validate_system()
+
+    # Missing dependencies?
+    if rc != 0:
+        return 2
+
+    # Prepare the environment
+    set_environment()
 
     # Handle the command
     cmd = settings.cmd[0]
-    rc = 0
 
     if cmd == "scan":
         rc = run_scan()
     elif cmd == "list":
         rc = list_scans()
     elif cmd == "print":
-        rc = print_scan(settings.cmd_args)
+        if len(settings.cmd_args) > 1 or not settings.cmd_args:
+            print("Invalid parameters")
+            parser.print_usage()
+            print("\nUse the -h or --help flag for more detailed information")
+            rc = 1
+        else:
+            scan_id = settings.cmd_args[0]
+            if not scan_id.isnumeric() or len(scan_id) != 18:
+                print(f"Invalid scan ID : {scan_id}")
+                rc = 1
+            else:
+                rc = print_scan(scan_id)
     elif cmd == "compare":
-        rc = compare_scans(settings.cmd_args)
+        if len(settings.cmd_args) > 2 or not settings.cmd_args:
+            print("Invalid parameters")
+            parser.print_usage()
+            print("\nUse the -h or --help flag for more detailed information")
+            rc = 1
+        else:
+            scan_id1 = settings.cmd_args[0]
+            scan_id2 = settings.cmd_args[1]
+            for scan in [scan_id1, scan_id2]:
+                if not scan.isnumeric() or len(scan) != 18:
+                    print(f"Invalid scan ID : {scan}")
+                    rc = 1
+                    break
+            if rc == 0:
+                rc = compare_scans(scan_id1, scan_id2)
     else:
         print(f"Unknown command {cmd}")
         rc = 1
