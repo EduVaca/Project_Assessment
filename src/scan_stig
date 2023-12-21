@@ -386,16 +386,17 @@ def compare_scans(args):
     print_scan_compare_summary(report1, report2)
     return 0
 
-
 ###############################################################################################
 
-def main(args):
-    """
-    Main program
-    """
-    global VERBOSE
+def create_parser():
+    """ Create an argument parser for the program
 
-    # Process tool arguments
+    Returns
+    -------
+    parser : ArgumentParser
+        Program argument parser
+    """
+
     description = """
 Command line tool for regular "openscap" scans of the Oracle Linux 8 system using
 available "stig" profile from the "scap-security-guide" package.
@@ -458,6 +459,18 @@ The following commands are supported:
         compare")
     parser_compare.set_defaults(action="compare", func=compare_scans)
 
+    return parser
+
+###############################################################################################
+
+def main(args):
+    """
+    Main program
+    """
+    global VERBOSE
+
+    # Create the program arguments parser
+    parser = create_parser()
 
     if not args:
         parser.print_usage()
@@ -466,18 +479,11 @@ The following commands are supported:
 
     settings = parser.parse_args(args=args)
 
-    if settings.action == None:
-        print("No command provided")
-        return 1
-
     if settings.verbose:
         VERBOSE = settings.verbose
 
     # Check for dependencies
-    rc = validate_system()
-
-    # Missing dependencies?
-    if rc != 0:
+    if validate_system() != 0:
         return 2
 
     # Prepare the environment
