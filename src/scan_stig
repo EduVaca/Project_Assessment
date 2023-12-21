@@ -132,8 +132,8 @@ def print_scan_compare_summary(report1, report2):
     if VERBOSE:
         print("print_scan_compare_summary")
 
-    rules1 = report1.get_raw_executed_rules()
-    rules2 = report2.get_raw_executed_rules()
+    rules1 = report1.get_raw_rules()
+    rules2 = report2.get_raw_rules()
 
     print("\nSummary statistics")
     # Get rules that only lives in the first report
