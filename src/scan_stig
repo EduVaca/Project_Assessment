@@ -19,6 +19,73 @@ STIG_PROFILE = "xccdf_org.ssgproject.content_profile_stig"
 DATA_STREAM_LOC = "/usr/share/xml/scap/ssg/content/ssg-ol8-ds.xml"
 SCAN_STIG_HOME_DIR = "~/.scan_stig"
 
+###############################################################################################
+
+def validate_id(scan_id):
+    """ Helper function to validate a given scan ID meets the build syntaxis
+
+    The syntaxis for a valid scan ID is as follows:
+
+        Date : %d%m%Y - 8 digits
+            %d - Day of the month as a zero-padded decimal number.
+            %m - Month as a zero-padded decimal number.
+            %Y - Year with century as a decimal number.
+
+        Time : %H%M%S - 6 digits
+            %H - Hour (24-hour clock) as a zero-padded decimal number.
+            %M - Minute as a zero-padded decimal number.
+            %S - Second as a zero-padded decimal number.
+
+        Consecutive number : #### - 4 digits
+            Number from 0000 to 9999 taken.
+
+    Parameters
+    ----------
+    scan_id : str
+        Scan ID string made of date, time, and a consecutive number.
+
+    Returns
+    -------
+    scan_id : str
+        A valid scan ID
+    """
+
+    date_time = "%d%m%Y%H%M%S"
+
+    msg = """
+    Scan ID must be in the format ddmmYYHHMMSS###
+
+    The syntaxis for a valid scan ID is as follows:
+
+    Date : %d%m%Y - 8 digits
+        %d - Day of the month as a zero-padded decimal number.
+        %m - Month as a zero-padded decimal number.
+        %Y - Year with century as a decimal number.
+
+    Time : %H%M%S - 6 digits
+        %H - Hour (24-hour clock) as a zero-padded decimal number.
+        %M - Minute as a zero-padded decimal number.
+        %S - Second as a zero-padded decimal number.
+
+    Consecutive number : #### - 4 digits
+        Number from 0000 to 9999 taken.
+    """
+
+    # Check only for numbers and lenght
+    if not scan_id.isnumeric() or len(scan_id) is not 18:
+        raise argparse.ArgumentTypeError(msg)
+
+    # Check for a valid date
+    try:
+        # strptime does not check for zero-padded on month and day so double check it.
+        if scan_id[:14] != datetime.strptime(scan_id[:14], date_time).strftime(date_time):
+            print("2")
+            raise argparse.ArgumentTypeError(msg)
+    except ValueError:
+        print("3")
+        raise argparse.ArgumentTypeError(msg)
+
+    return scan_id
 
 ###############################################################################################
 
@@ -180,7 +247,7 @@ def set_environment():
 
 ###############################################################################################
 
-def run_scan():
+def run_scan(args):
     """
     Execute scan and print scan report in the output
     """
@@ -228,7 +295,7 @@ def run_scan():
 
 ###############################################################################################
 
-def list_scans():
+def list_scans(args):
     """
     List history of executed scans printing scan ids
     """
@@ -259,10 +326,13 @@ def list_scans():
 
 ###############################################################################################
 
-def print_scan(scan_id):
+def print_scan(args):
     """
     Print scan report by scan id available from the history
     """
+
+    scan_id = args.id[0]
+
     if VERBOSE:
         print(f"print_scan : {scan_id}")
 
@@ -278,7 +348,7 @@ def print_scan(scan_id):
 
 ###############################################################################################
 
-def compare_scans(scan_id1, scan_id2):
+def compare_scans(args):
     """
     Compare two scan reports available from the history by scan ids.
     Print following:
@@ -286,6 +356,10 @@ def compare_scans(scan_id1, scan_id2):
         Summary statistics for scan 2 (id/total/passed/failed)
         Summary statistics for fixed/introduced results diff between scan 1 and scan 2
     """
+
+    scan_id1 = args.id1[0]
+    scan_id2 = args.id2[0]
+
     if VERBOSE:
         print(f"compare_scans : {scan_id1} {scan_id2}")
 
@@ -331,20 +405,19 @@ available "stig" profile from the "scap-security-guide" package.
 The following commands are supported:
 
     scan
-       Execute scan and print scan report in the standard output.
+       Scan the current system agaist the STIG profile.
 
-       Reports are linked to a given scan ID provided in the standard output
+       If the scan is performed correctly, an 18 digits scan ID is printed in
+       the standard output for future references.
 
     list
-       List history of executed scans.
+       List history of executed scan IDs.
 
-    print [scan report]
+    print [id]
        Print a given scan ID report.
 
-       Scan ID is numeric string with 18 numbers as follows : date|time|consecutive
-
-    compare [scan report 1, scan report 2]
-       Compare two given scan reports.
+    compare [id1, id2]
+       Compare two given scan ID reports.
        
 
 """
@@ -360,11 +433,31 @@ The following commands are supported:
     parser.add_argument("-v", "--verbose", default=False, action='store_true',
                         help="Verbose (print extra useful information)")
 
-    parser.add_argument("cmd", nargs=1,
-                        help="Supported commands")
+    subparser = parser.add_subparsers(help="Commands\n")
 
-    parser.add_argument("cmd_args", nargs="*",
-                        help="Arguments for the command if needed")
+    # Scan system against STIG profile
+    parser_scan = subparser.add_parser("scan", help="Scan the current system agaist the \
+        STIG profile")
+    parser_scan.set_defaults(action="scan", func=run_scan)
+
+    # List a previous scan IDs in the system
+    parser_list = subparser.add_parser("list", help="List previous scans in the system")
+    parser_list.set_defaults(action="list", func=list_scans)
+
+    # Print a given scan ID
+    parser_print = subparser.add_parser("print", help="Print the given scan ID")
+    parser_print.add_argument("id", nargs=1, type=validate_id, help="Scan ID to print")
+    parser_print.set_defaults(action="print", func=print_scan)
+
+    # Print two given scan IDs
+    parser_compare = subparser.add_parser("compare", help="Compare and print two given \
+        scan IDs")
+    parser_compare.add_argument("id1", nargs=1, type=validate_id, help="Scan ID to \
+        compare")
+    parser_compare.add_argument("id2", nargs=1, type=validate_id, help="Scan ID to \
+        compare")
+    parser_compare.set_defaults(action="compare", func=compare_scans)
+
 
     if not args:
         parser.print_usage()
@@ -373,7 +466,7 @@ The following commands are supported:
 
     settings = parser.parse_args(args=args)
 
-    if not settings.cmd:
+    if settings.action == None:
         print("No command provided")
         return 1
 
@@ -390,47 +483,7 @@ The following commands are supported:
     # Prepare the environment
     set_environment()
 
-    # Handle the command
-    cmd = settings.cmd[0]
-
-    if cmd == "scan":
-        rc = run_scan()
-    elif cmd == "list":
-        rc = list_scans()
-    elif cmd == "print":
-        if len(settings.cmd_args) > 1 or not settings.cmd_args:
-            print("Invalid parameters")
-            parser.print_usage()
-            print("\nUse the -h or --help flag for more detailed information")
-            rc = 1
-        else:
-            scan_id = settings.cmd_args[0]
-            if not scan_id.isnumeric() or len(scan_id) != 18:
-                print(f"Invalid scan ID : {scan_id}")
-                rc = 1
-            else:
-                rc = print_scan(scan_id)
-    elif cmd == "compare":
-        if len(settings.cmd_args) > 2 or not settings.cmd_args:
-            print("Invalid parameters")
-            parser.print_usage()
-            print("\nUse the -h or --help flag for more detailed information")
-            rc = 1
-        else:
-            scan_id1 = settings.cmd_args[0]
-            scan_id2 = settings.cmd_args[1]
-            for scan in [scan_id1, scan_id2]:
-                if not scan.isnumeric() or len(scan) != 18:
-                    print(f"Invalid scan ID : {scan}")
-                    rc = 1
-                    break
-            if rc == 0:
-                rc = compare_scans(scan_id1, scan_id2)
-    else:
-        print(f"Unknown command {cmd}")
-        rc = 1
-
-    return rc
+    return settings.func(settings)
 
 ###############################################################################################
 
