@@ -1,12 +1,47 @@
 #!/bin/env python3
 
+""" Command line tool for regular "openscap" scans
+
+Command line tool for regular "openscap" [1] scans of the Oracle Linux 8
+system using available "stig" profile from the "scap-security-guide" package [2].
+
+Command line tool provides following features:
+
+    * Execute scan and print scan ID report in the standar output
+    * List history of executed scans
+    * Print scan report by scan id available from the history
+    * Compare two scan reports available from the history by scan ids:
+        Print following:
+            Summary statistics for scan1 (id/total/passed/failed)
+            Summary statistics for scan2 (id/total/passed/failed)
+            Summary statistics for fixed/introduced results diff between scan1 and scan2
+
+Usage:
+
+    * Scan
+        python3 scan_stig.py scan
+    * list
+        python3 scan_stig.py list
+    * print
+        python3 scan_stig.py print ID
+    * compare
+        python3 scan_stig.py compare ID1 ID2
+
+Resources:
+
+[1]https://docs.oracle.com/en/operating-systems/oracle-linux/8/oscap/\
+oscap_information_and_reference.html#topic_wwd_2qf_m5b
+[2]https://docs.oracle.com/en/operating-systems/oracle-linux/8/oscap/\
+oscap-CheckingComplianceWithOSCAP.html#sect-scan
+
+"""
+
 ###############################################################################################
 import os
 import re
 import sys
 import glob
 import argparse
-import traceback
 import subprocess
 
 from datetime import datetime
@@ -73,7 +108,7 @@ def validate_id(scan_id):
     """
 
     # Check only for numbers and lenght
-    if not scan_id.isnumeric() or len(scan_id) is not 18:
+    if not scan_id.isnumeric() or len(scan_id) != 18:
         raise argparse.ArgumentTypeError(msg)
 
     # Check for a valid date
@@ -81,8 +116,8 @@ def validate_id(scan_id):
         # strptime does not check for zero-padded on month and day so double check it.
         if scan_id[:14] != datetime.strptime(scan_id[:14], date_time).strftime(date_time):
             raise argparse.ArgumentTypeError(msg)
-    except ValueError:
-        raise argparse.ArgumentTypeError(msg)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(msg) from exc
 
     return scan_id
 
@@ -98,16 +133,16 @@ def get_results(lam=None, func=filter):
 
     Parameters
     ----------
-    scan_id : str
-        Scan ID string made of date, time, and a consecutive number.
-
-    Returns
-    -------
     lam : lambda
         A lambda function to apply to the obtained list
 
     func : function
         A function to filter/map the obtained list
+
+    Returns
+    -------
+    list : list
+        List of found result IDs
     """
 
     # Do a quick filter for filenames with an 18 digit xml ending pattern
@@ -125,8 +160,18 @@ def get_results(lam=None, func=filter):
 ###############################################################################################
 
 def print_scan_compare_summary(report1, report2):
-    """
-    Print a compare summary of two existing oscap report
+    """ Print a compare summary of two existing oscap report
+
+    Parameters
+    ----------
+    report1 : Report
+        Report object to compare
+    report2 : Report
+        Report object to compare
+
+    Returns
+    -------
+    None
     """
 
     if VERBOSE:
@@ -135,9 +180,9 @@ def print_scan_compare_summary(report1, report2):
     rules1 = report1.get_raw_rules()
     rules2 = report2.get_raw_rules()
 
-    print("\nSummary statistics")
+    print("\nDiff summary statistics")
     # Get rules that only lives in the first report
-    print("\n\tExtra rules ID 1")
+    print(f"\n\tExtra rules ID({report1})")
     check = 1
     for rule in rules1:
         if not rule in rules2:
@@ -145,10 +190,10 @@ def print_scan_compare_summary(report1, report2):
             check = 0
     if check:
         print("\t\tNone")
-        check = 1
-    
+
     # Get rules that only lives in the second report
-    print("\n\tExtra rules ID 2")
+    print(f"\n\tExtra rules ID({report2})")
+    check = 1
     for rule in rules2:
         if not rule in rules1:
             print(f"\t\tRule\t: {rule}")
@@ -156,15 +201,17 @@ def print_scan_compare_summary(report1, report2):
     if check:
         print("\t\tNone")
         check = 1
-    
+
     # Get rules that lives in both reports with different results
     print("\n\tUnmatching results for the same rule")
+    check = 1
     for rule in rules1:
         if rule in rules2 and rules1[rule] != rules2[rule]:
             print(f"\t\tRule\t: {rule}")
-            print(f"\t\tID 1\t: {rules1[rule]}")
-            print(f"\t\tID 2\t: {rules2[rule]}")
+            print(f"\t\tID({report1})\t: {rules1[rule]}")
+            print(f"\t\tID({report2})\t: {rules2[rule]}")
             print()
+            check = 0
     if check:
         print("\t\tNone")
         check = 1
@@ -172,14 +219,22 @@ def print_scan_compare_summary(report1, report2):
 ###############################################################################################
 
 def get_new_scan_id():
-    """
-    Get from configuration directory the latest scan ID plus one and return it
+    """ Get from configuration directory the latest scan ID plus one and return it
+
+    Parameters
+    ----------
+    None
+
+    Returns
+    -------
+    id : str
+        A 4 digit consecutive number based on the last scan ID
     """
 
     if VERBOSE:
         print("get_last_scan_id")
 
-    results = [ result for result in get_results(lambda x: int(x[-8:-4]), map) ]
+    results = get_results(lambda x: int(x[-8:-4]), map)
 
     if results:
         # Sort reverse the list and get the first element, then sum one and fill it with
@@ -193,27 +248,36 @@ def get_new_scan_id():
 ###############################################################################################
 
 def validate_system():
-    """
-    Checks if all needed packages to run this tool are available
+    """ Checks if all needed packages to run this tool are available
+
+    Parameters
+    ----------
+    None
+
+    Returns
+    -------
+    exit_code : int
+        0 : The tool can run on this system
+        1 : The tool cannot run on this system
     """
 
     if VERBOSE:
         print("validate_system")
 
     # Check for scap-security-guide suit which depens on oscap
-    rc = subprocess.call(
+    exit_code = subprocess.call(
         ["rpm", "-q", SCAP_SEC_TOOL],
         stdout = (subprocess.DEVNULL if not VERBOSE else None),
         stderr = (subprocess.DEVNULL if not VERBOSE else None)
     )
 
-    if rc != 0:
+    if exit_code != 0:
         print(f"Package {SCAP_SEC_TOOL} is not installed")
         return 1
 
     # Check for Oracle Linux Server 8
     is_ol8 = False
-    with open("/etc/os-release", "r") as file:
+    with open("/etc/os-release", "r", encoding="UTF-8") as file:
         is_ol8 = False
         for line in file:
             if "platform:el8" in line:
@@ -226,13 +290,20 @@ def validate_system():
         print("This tool is designed for Oracle Linux Server 8")
         return 1
 
-    return rc
+    return exit_code
 
 ###############################################################################################
 
 def set_environment():
-    """
-    Prepare the system for execution
+    """ Prepare the system for execution
+
+    Parameters
+    ----------
+    None
+
+    Returns
+    -------
+    None
     """
 
     if VERBOSE:
@@ -242,9 +313,23 @@ def set_environment():
 
 ###############################################################################################
 
-def run_scan(args):
-    """
-    Execute scan and print scan report in the output
+def run_scan():
+    """ Execute scan and print scan report in the output
+
+    Executes a scan using the STIG profile and save the report and results
+    for further analysis.
+
+    Parameters
+    ----------
+    args : list
+        List of passed arguments to the tool
+
+    Returns
+    -------
+    exit_code : int
+        0 : All rules passed
+        1 : Something went wrong during evaluation
+        2 : Rules failed or unknown results
     """
     if VERBOSE:
         print("run_scan")
@@ -261,43 +346,53 @@ def run_scan(args):
     print(f"Generating scan ID {now}{scan_id}")
     # Form the command to scan the system using the STIG profile
     cmd = [
-        "oscap", "xccdf", "eval", "--profile", STIG_PROFILE, 
+        "oscap", "xccdf", "eval", "--profile", STIG_PROFILE,
         "--results", tmp_result, "--report", tmp_report, DATA_STREAM_LOC
     ]
 
     # We don't care about STDOUT/
-    rc = subprocess.call(cmd,
+    exit_code = subprocess.call(cmd,
         stdout = (subprocess.DEVNULL if not VERBOSE else None),
         stderr = (subprocess.DEVNULL if not VERBOSE else None)
     )
 
     # All rules passed
-    if rc == 0:
+    if exit_code == 0:
         print(f"All rules defined for {STIG_PROFILE} were passed")
     # Something went wrong during evaluation
-    elif rc == 1:
+    elif exit_code == 1:
         print("oscap evaluation went wrong")
     # Rules failed or unknown results
     else:
         print(f"Some rules defined for {STIG_PROFILE} were not passed")
 
     # Save scan
-    if rc != 1:
+    if exit_code != 1:
         os.rename(tmp_result, tmp_result.replace("/tmp", SCAN_STIG_HOME_DIR))
         os.rename(tmp_report, tmp_report.replace("/tmp", SCAN_STIG_HOME_DIR))
 
-    return rc
+    return exit_code
 
 ###############################################################################################
 
-def list_scans(args):
-    """
-    List history of executed scans printing scan ids
+def list_scans():
+    """ List history of executed scans printing scan ids
+
+    Parameters
+    ----------
+    args : list
+        List of passed arguments to the tool
+
+    Returns
+    -------
+    int : int
+        0 : One or more scan IDs were found
+        1 : None scan IDs were found
     """
     if VERBOSE:
         print("list_scans")
 
-    results = [ result for result in get_results(lambda x: x[-22:-4], map) ]
+    results = get_results(lambda x: x[-22:-4], map)
 
     if results:
         print(f"{len(results)} scan IDs were found:")
@@ -312,8 +407,20 @@ def list_scans(args):
 ###############################################################################################
 
 def print_scan(args):
-    """
-    Print scan report by scan id available from the history
+    """ Print scan report by scan id available from the history
+
+    Parameters
+    ----------
+    args : list
+        List of passed arguments to the tool
+
+        args.id[0] : Scan ID to print
+
+    Returns
+    -------
+    int : int
+        0 : Scan ID was found and printed
+        1 : Scan ID was not found
     """
 
     scan_id = args.id[0]
@@ -323,7 +430,7 @@ def print_scan(args):
 
     result = get_results(lambda x: scan_id in x)
 
-    if len(result) is 1:
+    if len(result) == 1:
         report = Report(result[0])
         report.print_summary()
         return 0
@@ -334,12 +441,26 @@ def print_scan(args):
 ###############################################################################################
 
 def compare_scans(args):
-    """
-    Compare two scan reports available from the history by scan ids.
+    """ Compare two scan reports available from the history by scan ids.
+
     Print following:
         Summary statistics for scan 1 (id/total/passed/failed)
         Summary statistics for scan 2 (id/total/passed/failed)
         Summary statistics for fixed/introduced results diff between scan 1 and scan 2
+
+    Parameters
+    ----------
+    args : list
+        List of passed arguments to the tool
+
+        args.id1[0] : Scan ID to compare
+        args.id2[0] : Scan ID to compare
+
+    Returns
+    -------
+    int : int
+        0 : Scan IDs were found and printed
+        1 : One or more scan IDs were not found
     """
 
     scan_id1 = args.id1[0]
@@ -379,6 +500,10 @@ def compare_scans(args):
 def create_parser():
     """ Create an argument parser for the program
 
+    Parameters
+    ----------
+    None
+
     Returns
     -------
     parser : ArgumentParser
@@ -411,18 +536,18 @@ The following commands are supported:
 
 """
 
-    parser = argparse.ArgumentParser(description = description[1:],
+    argparser = argparse.ArgumentParser(description = description[1:],
                                      epilog = epilog[1:],
                                      formatter_class=argparse.RawDescriptionHelpFormatter,
                                      add_help = False)
 
-    parser.add_argument("-h", "--help", action="help", default=argparse.SUPPRESS,
+    argparser.add_argument("-h", "--help", action="help", default=argparse.SUPPRESS,
                         help="Show this help message and exit")
 
-    parser.add_argument("-v", "--verbose", default=False, action='store_true',
+    argparser.add_argument("-v", "--verbose", default=False, action='store_true',
                         help="Verbose (print extra useful information)")
 
-    subparser = parser.add_subparsers(help="Commands\n")
+    subparser = argparser.add_subparsers(help="Commands\n")
 
     # Scan system against STIG profile
     parser_scan = subparser.add_parser("scan", help="Scan the current system agaist the \
@@ -447,46 +572,44 @@ The following commands are supported:
         compare")
     parser_compare.set_defaults(action="compare", func=compare_scans)
 
-    return parser
+    return argparser
 
 ###############################################################################################
 
-def main(args):
-    """
-    Main program
-    """
-    global VERBOSE
+if __name__ == '__main__':
+    # Main program
 
     # Create the program arguments parser
     parser = create_parser()
 
-    if not args:
+    if not sys.argv[1:]:
         parser.print_usage()
         print("\nUse the -h or --help flag for more detailed information")
-        return 1
+        sys.exit(1)
 
-    settings = parser.parse_args(args=args)
+    settings = parser.parse_args(args=sys.argv[1:])
 
     if settings.verbose:
         VERBOSE = settings.verbose
 
     # Check for dependencies
     if validate_system() != 0:
-        return 2
+        sys.exit(2)
 
     # Prepare the environment
     set_environment()
 
-    return settings.func(settings)
+    if settings.action == "scan":
+        EXIT_CODE = settings.func()
+    elif settings.action == "list":
+        EXIT_CODE = settings.func()
+    elif settings.action == "print":
+        EXIT_CODE = settings.func(settings)
+    elif settings.action == "compare":
+        EXIT_CODE = settings.func(settings)
+    else:
+        EXIT_CODE = 3
 
-###############################################################################################
-
-if __name__ == '__main__':
-    try:
-        sys.exit(main(sys.argv[1:]))
-    except Exception:
-        print(f"Error while running {sys.argv[0]}")
-        traceback.print_exc()
-        sys.exit(99)
+    sys.exit(EXIT_CODE)
 
 ###############################################################################################

@@ -1,9 +1,20 @@
+""" Report class that represents an XCCDF result.xml
+
+This class respresent the content of an XCCDF result.xml for ease usage of
+the scan_stig tool.
+
+Typical usage example:
+
+  report = Report()
+  report.print_summary()
+"""
+
 import xml.etree.ElementTree as ET
 from datetime import datetime
 
 NAMESPACE = "http://checklists.nist.gov/xccdf/1.2"
 
-class Report(object):
+class Report():
     """ This class represents the result of a profile evaluation performed OpenSCAP
 
     Attributes
@@ -40,15 +51,13 @@ class Report(object):
             file : str
                 XML file with XCCDF results of a previous scan
         """
-        super(Report, self).__init__()
 
         # Fill data from the file name
         self.scan_id = file[-22:-4]
         self.date = datetime.strptime(file[-22:-8], "%d%m%Y%H%M%S")
-        self._file = file
 
         # Parse the result XML file
-        self._root = ET.parse(self._file).getroot()
+        self._root = ET.parse(file).getroot()
         # Get references to the test results section since this is the only information
         # we care about
         self._test_results = self._root.findall(f"{{{NAMESPACE}}}TestResult")[0]
@@ -131,7 +140,7 @@ class Report(object):
         list : list
             A list of all passed rules
         """
-        return [ r for r in self.rules if "pass" in self.rules[r]]
+        return [ key for key, value in self.rules.items() if value == "pass" ]
 
     def get_failed_rules(self):
         """ Returns the failed rules in the report
@@ -145,7 +154,7 @@ class Report(object):
         list : list
             A list of all failed rules
         """
-        return [ r for r in self.rules if "fail" in self.rules[r]]
+        return [ key for key, value in self.rules.items() if value == "fail" ]
 
     def print_summary(self):
         """ Print a summary of the report results
@@ -159,7 +168,7 @@ class Report(object):
         None
         """
 
-        print(f"\nSummary statistics\n")
+        print("\nSummary statistics\n")
         print(f"\tID\t\t: {self.scan_id}")
         print(f"\tDate\t\t: {self.get_scan_date()}")
         print(f"\tSystem Score\t: {self.get_score()}")
