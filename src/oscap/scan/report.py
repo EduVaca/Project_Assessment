@@ -79,3 +79,20 @@ class Report(object):
         Get a copy of the already parse rules dictionary
         """
         return self.executed_rules
+
+    def print_summary(self):
+        """ Print a summary of the report
+
+        Parameters
+        ----------
+        self : Report
+            Instance of this class
+        """
+
+        print(f"\nSummary statistics\n")
+        print(f"\tID\t\t: {self.scan_id}")
+        print(f"\tDate\t\t: {self.get_scan_date()}")
+        print(f"\tSystem Score\t: {self.get_score()}")
+        print(f"\tTotal Rules\t: {self.get_executed_rules()}")
+        print(f"\t\tPassed\t: {self.get_passed_rules()}")
+        print(f"\t\tFailed\t: {self.get_failed_rules()}")
