@@ -2,6 +2,7 @@
 
 ###############################################################################################
 import os
+import re
 import sys
 import glob
 import argparse
@@ -17,7 +18,7 @@ VERBOSE = False
 SCAP_SEC_TOOL = "scap-security-guide"
 STIG_PROFILE = "xccdf_org.ssgproject.content_profile_stig"
 DATA_STREAM_LOC = "/usr/share/xml/scap/ssg/content/ssg-ol8-ds.xml"
-SCAN_STIG_HOME_DIR = "~/.scan_stig"
+SCAN_STIG_HOME_DIR = os.path.expanduser("~/.scan_stig")
 
 ###############################################################################################
 
@@ -87,11 +88,39 @@ def validate_id(scan_id):
 
 ###############################################################################################
 
-def get_results():
+def get_results(lam=None, func=filter):
+    """ Helper function to get a list of available reults
+
+    First, it looks for valid file names with an 18 digit xml ending pattern.
+    Lastly, it applies the passed lambda function to return only the interested values
+    so that the caller gets a list that it can  work with it without exceptions
+    on the formatting.
+
+    Parameters
+    ----------
+    scan_id : str
+        Scan ID string made of date, time, and a consecutive number.
+
+    Returns
+    -------
+    lam : lambda
+        A lambda function to apply to the obtained list
+
+    func : function
+        A function to filter/map the obtained list
     """
-    Helper function to get a list of available reults
-    """
-    return glob.glob(f"{os.path.expanduser(SCAN_STIG_HOME_DIR)}/result_*.xml")
+
+    # Do a quick filter for filenames with an 18 digit xml ending pattern
+    regx = re.compile(r"_[0-9]{18}\.xml")
+    results = list(filter(regx.search, glob.glob(f"{SCAN_STIG_HOME_DIR}/result_*.xml")))
+
+    # If nothing to do, then return the list as it is
+    if lam is None:
+        return results
+
+    # Return the list with the appropiate filter/map
+    return list(func(lam, results))
+
 
 ###############################################################################################
 
@@ -150,17 +179,7 @@ def get_new_scan_id():
     if VERBOSE:
         print("get_last_scan_id")
 
-    results = []
-    for result in get_results():
-        # Get the ID only and convert it do interger so we can sort the list
-        try:
-            number = int(result[-8:-4])
-            results.append(number)
-        except Exception as excep:
-            if VERBOSE:
-                print(f"Exception parsing the following report: {result}")
-                print(excep)
-
+    results = [ result for result in get_results(lambda x: int(x[-8:-4]), map) ]
 
     if results:
         # Sort reverse the list and get the first element, then sum one and fill it with
@@ -219,7 +238,7 @@ def set_environment():
     if VERBOSE:
         print("set_environment")
 
-    os.makedirs(os.path.expanduser(SCAN_STIG_HOME_DIR), exist_ok=True)
+    os.makedirs(SCAN_STIG_HOME_DIR, exist_ok=True)
 
 ###############################################################################################
 
@@ -264,8 +283,8 @@ def run_scan(args):
 
     # Save scan
     if rc != 1:
-        os.rename(tmp_result, tmp_result.replace("/tmp", os.path.expanduser(SCAN_STIG_HOME_DIR)))
-        os.rename(tmp_report, tmp_report.replace("/tmp", os.path.expanduser(SCAN_STIG_HOME_DIR)))
+        os.rename(tmp_result, tmp_result.replace("/tmp", SCAN_STIG_HOME_DIR))
+        os.rename(tmp_report, tmp_report.replace("/tmp", SCAN_STIG_HOME_DIR))
 
     return rc
 
@@ -278,27 +297,17 @@ def list_scans(args):
     if VERBOSE:
         print("list_scans")
 
-    rc = 0
-    results = []
-
-    for result in get_results():
-        # Get the ID only and convert it do interger so we can sort the list
-        try:
-            results.append(result[-22:-4])
-        except Exception as excep:
-            if VERBOSE:
-                print(f"Exception parsing the following report: {result}")
-                print(excep)
+    results = [ result for result in get_results(lambda x: x[-22:-4], map) ]
 
     if results:
         print(f"{len(results)} scan IDs were found:")
         results.sort()
         for result in results:
             print(f"\t{result}")
-    else:
-        print("Scans not found")
+        return 0
 
-    return rc
+    print("Scans not found")
+    return 1
 
 ###############################################################################################
 
@@ -312,16 +321,15 @@ def print_scan(args):
     if VERBOSE:
         print(f"print_scan : {scan_id}")
 
-    rc = 1
+    result = get_results(lambda x: scan_id in x)
 
-    for result in get_results():
-        if scan_id in result:
-            report = Report(result)
-            report.print_summary()
-            return 0
+    if len(result) is 1:
+        report = Report(result[0])
+        report.print_summary()
+        return 0
 
     print(f"Scan id {scan_id} was not found")
-    return rc
+    return 1
 
 ###############################################################################################
 
@@ -343,7 +351,7 @@ def compare_scans(args):
     result1 = ""
     result2 = ""
 
-    for result in get_results():
+    for result in get_results(lambda x: scan_id1 in x or scan_id2 in x):
         if scan_id1 in result:
             result1 = result
         if scan_id2 in result:
