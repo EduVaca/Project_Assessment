@@ -79,10 +79,8 @@ def validate_id(scan_id):
     try:
         # strptime does not check for zero-padded on month and day so double check it.
         if scan_id[:14] != datetime.strptime(scan_id[:14], date_time).strftime(date_time):
-            print("2")
             raise argparse.ArgumentTypeError(msg)
     except ValueError:
-        print("3")
         raise argparse.ArgumentTypeError(msg)
 
     return scan_id
