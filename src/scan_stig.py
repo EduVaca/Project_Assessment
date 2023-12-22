@@ -345,7 +345,68 @@ def set_environment():
 
 ###############################################################################################
 
-def run_scan():
+def validate_profile(profile):
+    """ Validate a profile against a default data stream
+
+    Validates profile against /usr/share/xml/scap/ssg/content/ssg-ol8-ds.xml
+
+    Parameters
+    ----------
+    profile : str
+        Profile to validate if is valid for the used data stream
+
+    Returns
+    -------
+    exit_code : int
+        0 : Profile found
+        1 : Profile not found
+    """
+
+    if VERBOSE:
+        print(f"validate_profile : {profile}")
+    logger.info("validate_profile : %s", profile)
+
+    # Form the command to see available profiles
+    cmd = [
+        "oscap",
+        "info",
+        DATA_STREAM_LOC
+    ]
+
+    logger.debug("cmd : %s", cmd)
+
+    # Use check_output to check for the profile
+    info = subprocess.check_output(cmd,
+        stderr = (
+            subprocess.DEVNULL if logger.level >= logging.INFO or not VERBOSE else None
+            )
+    )
+
+    for line in info.decode("ascii").split("\n"):
+        if VERBOSE:
+            print(line)
+        logger.debug(line)
+        if "\tId:" in line and line.endswith(profile):
+            prev_line = prev_line.replace("\t", "")
+            line = line.replace("\t", "")
+            if VERBOSE:
+                print("Profile selected")
+                print(prev_line)
+                print(line)
+            logger.debug("Profile selected")
+            logger.debug(prev_line)
+            logger.debug(line)
+            return 0
+        prev_line = line
+
+
+    logger.error("Profile %s not foun in data stream %s", profile, DATA_STREAM_LOC)
+
+    return 1
+
+###############################################################################################
+
+def run_scan(args):
     """ Execute scan and print scan report in the output
 
     Executes a scan using the STIG profile and save the report and results
@@ -362,10 +423,18 @@ def run_scan():
         0 : All rules passed
         1 : Something went wrong during evaluation
         2 : Rules failed or unknown results
+        3 : Scan profile was not found
     """
     if VERBOSE:
         print("run_scan")
     logger.info("run_scan")
+
+    exit_code = validate_profile(args.profile)
+
+    # If we don't have a valid profile then exit
+    if exit_code == 1:
+        print(f"Profile not found : {args.profile}")
+        return 3
 
     # Get the starting date
     now = datetime.now().strftime("%d%m%Y%H%M%S")
@@ -380,11 +449,17 @@ def run_scan():
     tmp_result = f"/tmp/result_{now}{scan_id}.xml"
     tmp_report = f"/tmp/report_{now}{scan_id}.html"
 
+    print(f"Profile : {args.profile}")
     print(f"Scan ID : {now}{scan_id}")
     # Form the command to scan the system using the STIG profile
     cmd = [
-        "oscap", "xccdf", "eval", "--profile", STIG_PROFILE,
-        "--results", tmp_result, "--report", tmp_report, DATA_STREAM_LOC
+        "oscap",
+        "xccdf",
+        "eval",
+        "--profile", args.profile,
+        "--results", tmp_result,
+        "--report", tmp_report,
+        DATA_STREAM_LOC
     ]
 
     logger.debug("cmd : %s", cmd)
@@ -403,13 +478,13 @@ def run_scan():
 
     # All rules passed
     if exit_code == 0:
-        print(f"All rules defined for {STIG_PROFILE} were passed")
+        print(f"All rules defined for {args.profile} were passed")
     # Something went wrong during evaluation
     elif exit_code == 1:
-        print("oscap evaluation went wrong")
+        print(f"oscap evaluation went wrong for profile : {args.profile}")
     # Rules failed or unknown results
     else:
-        print(f"Some rules defined for {STIG_PROFILE} were not passed")
+        print(f"Some rules defined for {args.profile} were not passed")
 
     # Save scan
     if exit_code != 1:
@@ -596,22 +671,29 @@ available "stig" profile from the "scap-security-guide" package.
 The following commands are supported:
 
     scan
-       Scan the current system agaist the STIG profile.
+       Scan the current system agaist a given profile. If none profile
+       is provided then STIG is selected by default.
 
        If the scan is performed correctly, an 18 digits scan ID is printed in
        the standard output for future references.
 
+       -p PROFILE, --profile PROFILE
+            Profile to use for the scan (otional). 
     list
        List history of executed scan IDs.
 
-       -f, --failed  Print all failed rules in all the reports available
-       -a, --all     Print all rules in all the reports available
+       -f, --failed
+            Print all failed rules in all the reports available
+       -a, --all
+            Print all rules in all the reports available
 
     print [id]
        Print a given scan ID report.
 
-       -f, --failed  Print failed rules
-       -a, --all     Print all rules
+       -f, --failed
+            Print failed rules
+       -a, --all
+            Print all rules
 
     compare [id1, id2]
        Compare two given scan ID reports.
@@ -633,8 +715,12 @@ The following commands are supported:
     subparser = argparser.add_subparsers(help="Commands\n")
 
     # Scan system against STIG profile
-    parser_scan = subparser.add_parser("scan", help="Scan the current system agaist the \
-        STIG profile")
+    parser_scan = subparser.add_parser("scan", help="Scan the current system agaist a \
+        defined profile. If none profile is provided then STIG is selected by default")
+    parser_scan.add_argument(
+        "-p", "--profile", default=STIG_PROFILE, type=str, help="Profile to use \
+        for the scan"
+        )
     parser_scan.set_defaults(action="scan", func=run_scan)
 
     # List a previous scan IDs in the system
@@ -697,7 +783,7 @@ if __name__ == '__main__':
     set_environment()
 
     if settings.action == "scan":
-        EXIT_CODE = settings.func()
+        EXIT_CODE = settings.func(settings)
     elif settings.action == "list":
         EXIT_CODE = settings.func(settings)
     elif settings.action == "print":
@@ -705,7 +791,7 @@ if __name__ == '__main__':
     elif settings.action == "compare":
         EXIT_CODE = settings.func(settings)
     else:
-        EXIT_CODE = 3
+        EXIT_CODE = 4
 
     sys.exit(EXIT_CODE)
 

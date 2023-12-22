@@ -31,6 +31,8 @@ class Report():
     -------
     get_scan_date() :
         Returns the date of the report
+    get_profile(self):
+        Returns the profile this report belongs to
     get_score() :
         Returns the score of the report
     get_raw_rules() :
@@ -61,16 +63,18 @@ class Report():
         self.date = datetime.strptime(file[-22:-8], "%d%m%Y%H%M%S")
 
         # Parse the result XML file
-        self._root = ET.parse(file).getroot()
+        root = ET.parse(file).getroot()
         # Get references to the test results section since this is the only information
         # we care about
-        self._test_results = self._root.findall(f"{{{NAMESPACE}}}TestResult")[0]
-        self._defined_rules = self._test_results.findall(f"{{{NAMESPACE}}}rule-result")
-        self.score = self._test_results.find(f"{{{NAMESPACE}}}score").text
+        test_results = root.findall(f"{{{NAMESPACE}}}TestResult")[0]
+        # Get profile
+        self.profile = test_results.attrib["id"]
+        defined_rules = test_results.findall(f"{{{NAMESPACE}}}rule-result")
+        self.score = test_results.find(f"{{{NAMESPACE}}}score").text
 
         self.rules = {}
         # Create a dictionary of all defined rules for later usage
-        for rule in self._defined_rules:
+        for rule in defined_rules:
             rule_name = rule.attrib["idref"]
             result = rule.find(f"{{{NAMESPACE}}}result").text
             if not "notselected" in result:
@@ -103,6 +107,20 @@ class Report():
             Date of the report
         """
         return self.date
+
+    def get_profile(self):
+        """ Returns the profile this report belongs to
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        date : str
+            Profile
+        """
+        return self.profile
 
     def get_score(self):
         """ Returns the score of the report
@@ -208,6 +226,7 @@ class Report():
         print("\nSummary statistics\n")
         print(f"\tID\t\t: {self.scan_id}")
         print(f"\tDate\t\t: {self.get_scan_date()}")
+        print(f"\tProfile\t\t: {self.get_profile()}")
         print(f"\tSystem Score\t: {self.get_score()}")
         print(f"\tTotal Rules\t: {len(self.get_raw_rules())}")
         print(f"\t\tPassed\t: {len(self.get_passed_rules())}")
