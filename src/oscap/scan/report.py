@@ -9,6 +9,7 @@ Typical usage example:
   report.print_summary()
 """
 
+import json
 import xml.etree.ElementTree as ET
 from datetime import datetime
 
@@ -49,7 +50,7 @@ class Report():
         Print a summary of the report results
     """
 
-    def __init__(self, file):
+    def __init__(self, input_file=None):
         """ Constructs all the necessary attributes for the report object.
 
         Parameters
@@ -58,27 +59,43 @@ class Report():
                 XML file with XCCDF results of a previous scan
         """
 
-        # Fill data from the file name
-        self.scan_id = file[-22:-4]
-        self.date = datetime.strptime(file[-22:-8], "%d%m%Y%H%M%S")
+        # Load from JSON format
+        if input_file.endswith(".dat"):
+            with open(input_file, "r", encoding="UTF-8") as file:
+                # Somehow load returns a str type, so double load it
+                # to get with a JSON dict style
+                js_report = json.loads(json.load(file))
+                # Initialize the Object from the dict
+                for key in js_report.keys():
+                    setattr(self, key, js_report[key])
 
-        # Parse the result XML file
-        root = ET.parse(file).getroot()
-        # Get references to the test results section since this is the only information
-        # we care about
-        test_results = root.findall(f"{{{NAMESPACE}}}TestResult")[0]
-        # Get profile
-        self.profile = test_results.attrib["id"]
-        defined_rules = test_results.findall(f"{{{NAMESPACE}}}rule-result")
-        self.score = test_results.find(f"{{{NAMESPACE}}}score").text
+        # Load from XML format
+        elif input_file.endswith(".xml"):
+            # Fill data from the file name
+            self.scan_id = input_file[-22:-4]
+            self.date = datetime.strptime(
+                input_file[-22:-8], "%d%m%Y%H%M%S"
+                ).strftime("%d-%m-%Y %H:%M:%S")
 
-        self.rules = {}
-        # Create a dictionary of all defined rules for later usage
-        for rule in defined_rules:
-            rule_name = rule.attrib["idref"]
-            result = rule.find(f"{{{NAMESPACE}}}result").text
-            if not "notselected" in result:
-                self.rules[rule_name] = result
+            # Parse the result XML file
+            root = ET.parse(input_file).getroot()
+            # Get references to the test results section since this is the only information
+            # we care about
+            test_results = root.findall(f"{{{NAMESPACE}}}TestResult")[0]
+            # Get profile
+            self.profile = test_results.attrib["id"]
+            defined_rules = test_results.findall(f"{{{NAMESPACE}}}rule-result")
+            self.score = test_results.find(f"{{{NAMESPACE}}}score").text
+
+            self.rules = {}
+            # Create a dictionary of all defined rules for later usage
+            for rule in defined_rules:
+                rule_name = rule.attrib["idref"]
+                result = rule.find(f"{{{NAMESPACE}}}result").text
+                if not "notselected" in result:
+                    self.rules[rule_name] = result
+
+            # In other cases just let the Object be created
 
     def __str__(self):
         """ Built-in method to print the object as a string

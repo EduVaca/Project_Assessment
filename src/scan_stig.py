@@ -44,6 +44,7 @@ oscap-CheckingComplianceWithOSCAP.html#sect-scan
 import os
 import re
 import sys
+import json
 import glob
 import logging
 import argparse
@@ -161,8 +162,8 @@ def get_results(lam=None, func=filter):
     """
 
     # Do a quick filter for filenames with an 18 digit xml ending pattern
-    regx = re.compile(r"_[0-9]{18}\.xml")
-    results = list(filter(regx.search, glob.glob(f"{SCAN_STIG_HOME_DIR}/result_*.xml")))
+    regx = re.compile(r"_[0-9]{18}\.dat")
+    results = list(filter(regx.search, glob.glob(f"{SCAN_STIG_HOME_DIR}/result_*.dat")))
 
     logger.debug("Filtered results: %s", results)
 
@@ -492,7 +493,19 @@ def run_scan(args):
 
     # Save scan
     if exit_code != 1:
-        os.rename(tmp_result, tmp_result.replace("/tmp", SCAN_STIG_HOME_DIR))
+        # Transform the format to an object instance
+        report = Report(tmp_result)
+        js_report = json.dumps(report.__dict__)
+        final_file = tmp_result.replace(
+            "/tmp", SCAN_STIG_HOME_DIR
+            ).replace(
+            ".xml", ".dat"
+            )
+
+        with open(final_file, "w", encoding="UTF-8") as file:
+            json.dump(js_report, file)
+
+        os.remove(tmp_result)
         #os.rename(tmp_report, tmp_report.replace("/tmp", SCAN_STIG_HOME_DIR))
 
     return exit_code
