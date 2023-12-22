@@ -12,6 +12,7 @@ This tool runs scans with STIG and other profiles defined in the "scap-security-
 Before using the tool, it is required to download the git project and move to the project source directory where the Python tool (scan_stig.py) is located:
 
 > git clone https://github.com/EduVaca/Project_Assessment.git
+> 
 > cd Project_Assessment/src
 
 The tool is made based on two Python3 scripts: scan_stig.py, which is the main program (described in more detail below), and the Report class (src/oscap/scan/report.py), which is a representation of the obtained scan reports performed by oscap.
