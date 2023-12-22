@@ -1,81 +1,250 @@
+""" Report class that represents an XCCDF result.xml
+
+This class respresent the content of an XCCDF result.xml for ease usage of
+the scan_stig tool.
+
+Typical usage example:
+
+  report = Report()
+  report.print_summary()
+"""
+
+import json
 import xml.etree.ElementTree as ET
 from datetime import datetime
 
 NAMESPACE = "http://checklists.nist.gov/xccdf/1.2"
 
-class Report(object):
-    """docstring for Report"""
+class Report():
+    """ This class represents the result of a profile evaluation performed OpenSCAP
 
-    def __init__(self, file):
-        super(Report, self).__init__()
+    Attributes
+    ----------
+    scan_id : str
+        first name of the person
+    date : str
+        family name of the person
+    score : str
+        age of the person
+    rules : dict
 
-        # Fill data from the file name
-        self.scan_id = file[-22:-4]
-        self.date = datetime.strptime(file[-22:-8], "%d%m%Y%H%M%S")
-        self.file = file
+    Methods
+    -------
+    get_scan_date() :
+        Returns the date of the report
+    get_profile(self):
+        Returns the profile this report belongs to
+    get_score() :
+        Returns the score of the report
+    get_raw_rules() :
+        Returns the rules evaluated in the report
+    print_all_rules():
+        Print all rules in the report with its result
+    get_passed_rules() :
+        Returns the passed rules in the report
+    get_failed_rules() :
+        Returns the failed rules in the report
+    print_failed_rules():
+        Print all failed rules in the report
+    print_summary() :
+        Print a summary of the report results
+    """
 
-        # Parse the result XML file
-        self.root = ET.parse(file).getroot()
-        # Get references to the test results section since this is the only information
-        # we care about
-        self.test_results = self.root.findall(f"{{{NAMESPACE}}}TestResult")[0]
-        self.defined_rules = self.test_results.findall(f"{{{NAMESPACE}}}rule-result")
-        self.score = self.test_results.find(f"{{{NAMESPACE}}}score").text
+    def __init__(self, input_file=None):
+        """ Constructs all the necessary attributes for the report object.
 
-        self.parse_rules = {}
-        # Create a dictionary of all defined rules for later usage
-        for rule in self.defined_rules:
-            rule_name = rule.attrib["idref"]
-            result = rule.find(f"{{{NAMESPACE}}}result").text
-            self.parse_rules[rule_name] = result
+        Parameters
+        ----------
+            file : str
+                XML file with XCCDF results of a previous scan
+        """
 
-        # Now get the pass/fail rules
-        self.executed_rules = {}
-        for rule in self.parse_rules:
-            if self.parse_rules[rule] in ["pass", "fail"]:
-                self.executed_rules[rule] = self.parse_rules[rule]
+        # Load from JSON format
+        if input_file.endswith(".dat"):
+            with open(input_file, "r", encoding="UTF-8") as file:
+                # Somehow load returns a str type, so double load it
+                # to get with a JSON dict style
+                js_report = json.loads(json.load(file))
+                # Initialize the Object from the dict
+                for key in js_report.keys():
+                    setattr(self, key, js_report[key])
 
-        # Get fail/pass rules
-        self.passed_rules = len(
-            [ r for r in self.executed_rules if "pass" in self.executed_rules[r]]
-        )
-        self.failed_rules = len(self.executed_rules) - self.passed_rules
+        # Load from XML format
+        elif input_file.endswith(".xml"):
+            # Fill data from the file name
+            self.scan_id = input_file[-22:-4]
+            self.date = datetime.strptime(
+                input_file[-22:-8], "%d%m%Y%H%M%S"
+                ).strftime("%d-%m-%Y %H:%M:%S")
+
+            # Parse the result XML file
+            root = ET.parse(input_file).getroot()
+            # Get references to the test results section since this is the only information
+            # we care about
+            test_results = root.findall(f"{{{NAMESPACE}}}TestResult")[0]
+            # Get profile
+            self.profile = test_results.attrib["id"]
+            defined_rules = test_results.findall(f"{{{NAMESPACE}}}rule-result")
+            self.score = test_results.find(f"{{{NAMESPACE}}}score").text
+
+            self.rules = {}
+            # Create a dictionary of all defined rules for later usage
+            for rule in defined_rules:
+                rule_name = rule.attrib["idref"]
+                result = rule.find(f"{{{NAMESPACE}}}result").text
+                if not "notselected" in result:
+                    self.rules[rule_name] = result
+
+            # In other cases just let the Object be created
 
     def __str__(self):
+        """ Built-in method to print the object as a string
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        scan_id : str
+            Scan ID
+        """
         return self.scan_id
 
     def get_scan_date(self):
-        """
-        Return the date of the scan result
+        """ Returns the date of the report
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        date : str
+            Date of the report
         """
         return self.date
 
-    def get_score(self):
+    def get_profile(self):
+        """ Returns the profile this report belongs to
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        date : str
+            Profile
         """
-        Get the final score from the parsed XML
+        return self.profile
+
+    def get_score(self):
+        """ Returns the score of the report
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        score : score
+            The score of the report
         """
         return self.score
 
-    def get_executed_rules(self):
+    def get_raw_rules(self):
+        """ Returns the rules evaluated in the report
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        rules : dic
+            A dictionary with all the rules defined for a profile except notselected
         """
-        Get the filter number of rules pass/fail
+        return self.rules
+
+    def print_all_rules(self):
+        """ Print all rules in the report with its result
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        None
         """
-        return len(self.executed_rules)
+
+        print(f"\nAll rules results ({len(self.rules)})\n")
+        for rule, result in self.rules.items():
+            print(f"\tRule\t: {rule}")
+            print(f"\tResult\t: {result}")
 
     def get_passed_rules(self):
+        """ Returns the passed rules in the report
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        list : list
+            A list of all passed rules
         """
-        Get only pass number of rules
-        """
-        return self.passed_rules
+        return [ key for key, value in self.rules.items() if value == "pass" ]
 
     def get_failed_rules(self):
-        """
-        Get only fail number of rules
-        """
-        return self.failed_rules
+        """ Returns the failed rules in the report
 
-    def get_raw_executed_rules(self):
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        list : list
+            A list of all failed rules
         """
-        Get a copy of the already parse rules dictionary
+        return [ key for key, value in self.rules.items() if value == "fail" ]
+
+    def print_failed_rules(self):
+        """ Print all failed rules in the report
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        None
         """
-        return self.executed_rules
+
+        print(f"\nSummary of failed rules ({len(self.get_failed_rules())})\n")
+        for rule in self.get_failed_rules():
+            print(f"\tRule\t: {rule}")
+
+    def print_summary(self):
+        """ Print a summary of the report results
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        None
+        """
+
+        print("\nSummary statistics\n")
+        print(f"\tID\t\t: {self.scan_id}")
+        print(f"\tDate\t\t: {self.get_scan_date()}")
+        print(f"\tProfile\t\t: {self.get_profile()}")
+        print(f"\tSystem Score\t: {self.get_score()}")
+        print(f"\tTotal Rules\t: {len(self.get_raw_rules())}")
+        print(f"\t\tPassed\t: {len(self.get_passed_rules())}")
+        print(f"\t\tFailed\t: {len(self.get_failed_rules())}")
