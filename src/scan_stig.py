@@ -15,6 +15,7 @@ Command line tool provides following features:
             Summary statistics for scan1 (id/total/passed/failed)
             Summary statistics for scan2 (id/total/passed/failed)
             Summary statistics for fixed/introduced results diff between scan1 and scan2
+    * Remove scan report by scan id available from the history
 
 Usage:
 
@@ -26,6 +27,8 @@ Usage:
         python3 scan_stig.py print ID
     * compare
         python3 scan_stig.py compare ID1 ID2
+    * remove
+        python3 scan_stig.py remove ID
 
 Resources:
 
@@ -447,7 +450,8 @@ def run_scan(args):
 
     # Let oscap remove the files if they already exists
     tmp_result = f"/tmp/result_{now}{scan_id}.xml"
-    tmp_report = f"/tmp/report_{now}{scan_id}.html"
+    # HTML report is not used for this tool so skip it for now
+    #tmp_report = f"/tmp/report_{now}{scan_id}.html"
 
     print(f"Profile : {args.profile}")
     print(f"Scan ID : {now}{scan_id}")
@@ -458,7 +462,7 @@ def run_scan(args):
         "eval",
         "--profile", args.profile,
         "--results", tmp_result,
-        "--report", tmp_report,
+        #"--report", tmp_report,
         DATA_STREAM_LOC
     ]
 
@@ -489,7 +493,7 @@ def run_scan(args):
     # Save scan
     if exit_code != 1:
         os.rename(tmp_result, tmp_result.replace("/tmp", SCAN_STIG_HOME_DIR))
-        os.rename(tmp_report, tmp_report.replace("/tmp", SCAN_STIG_HOME_DIR))
+        #os.rename(tmp_report, tmp_report.replace("/tmp", SCAN_STIG_HOME_DIR))
 
     return exit_code
 
@@ -649,6 +653,49 @@ def compare_scans(args):
 
 ###############################################################################################
 
+def remove_scan_id(args):
+    """ Remove a given scan ID
+
+    Parameters
+    ----------
+    args : list
+        List of passed arguments to the tool
+
+        args.id[0]  : Scan ID to remove
+
+    Returns
+    -------
+    int : int
+        0 : Scan ID removed
+        1 : Scan ID not found
+    """
+
+    scan_id = args.id[0]
+
+    if VERBOSE:
+        print(f"remove_scan_id : {scan_id}")
+    logger.info("remove_scan_id : %s", scan_id)
+
+    results = get_results(lambda x: scan_id in x)
+
+    logger.debug(results)
+
+    if results:
+        # It's supposed we only get one item from the list
+        # but in case something bad happens just remove the first element
+        print(f"Removing Scan ID({scan_id}) -> {results[0]}")
+        logger.info("Removing Scan ID(%s) -> {%s}", scan_id, results[0])
+        try:
+            os.remove(results[0])
+        except FileNotFoundError:
+            logger.error("File not found when removing")
+        return 0
+
+    print("Scan ID not found")
+    return 1
+
+###############################################################################################
+
 def create_parser():
     """ Create an argument parser for the program
 
@@ -698,6 +745,8 @@ The following commands are supported:
     compare [id1, id2]
        Compare two given scan ID reports.
        
+    remove [id]
+       Remove a given scan ID report.
 
 """
 
@@ -755,6 +804,11 @@ The following commands are supported:
         compare")
     parser_compare.set_defaults(action="compare", func=compare_scans)
 
+    # Remove a given scan ID
+    parser_print = subparser.add_parser("remove", help="Remove the given scan ID")
+    parser_print.add_argument("id", nargs=1, type=validate_id, help="Scan ID to remove")
+    parser_print.set_defaults(action="remove", func=remove_scan_id)
+
     return argparser
 
 ###############################################################################################
@@ -789,6 +843,8 @@ if __name__ == '__main__':
     elif settings.action == "print":
         EXIT_CODE = settings.func(settings)
     elif settings.action == "compare":
+        EXIT_CODE = settings.func(settings)
+    elif settings.action == "remove":
         EXIT_CODE = settings.func(settings)
     else:
         EXIT_CODE = 4
