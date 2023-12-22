@@ -37,10 +37,12 @@ oscap-CheckingComplianceWithOSCAP.html#sect-scan
 """
 
 ###############################################################################################
+
 import os
 import re
 import sys
 import glob
+import logging
 import argparse
 import subprocess
 
@@ -54,6 +56,16 @@ SCAP_SEC_TOOL = "scap-security-guide"
 STIG_PROFILE = "xccdf_org.ssgproject.content_profile_stig"
 DATA_STREAM_LOC = "/usr/share/xml/scap/ssg/content/ssg-ol8-ds.xml"
 SCAN_STIG_HOME_DIR = os.path.expanduser("~/.scan_stig")
+
+# Set logger
+logging.basicConfig(
+    stream=sys.stdout,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+
+# Give it the program name
+logger = logging.getLogger("scan_stig")
+#logger.setLevel(logging.DEBUG)
 
 ###############################################################################################
 
@@ -149,6 +161,8 @@ def get_results(lam=None, func=filter):
     regx = re.compile(r"_[0-9]{18}\.xml")
     results = list(filter(regx.search, glob.glob(f"{SCAN_STIG_HOME_DIR}/result_*.xml")))
 
+    logger.debug("Filtered results: %s", results)
+
     # If nothing to do, then return the list as it is
     if lam is None:
         return results
@@ -176,6 +190,7 @@ def print_scan_compare_summary(report1, report2):
 
     if VERBOSE:
         print("print_scan_compare_summary")
+    logger.info("print_scan_compare_summary")
 
     rules1 = report1.get_raw_rules()
     rules2 = report2.get_raw_rules()
@@ -218,12 +233,16 @@ def print_scan_compare_summary(report1, report2):
 
 ###############################################################################################
 
-def get_new_scan_id():
-    """ Get from configuration directory the latest scan ID plus one and return it
+def get_new_scan_id(now):
+    """ Get from configuration directory the latest scan ID
+
+    Get the latest scan ID of the current date plus one and return it,
+    if none scan ID in the current date is found, then start from 0000
 
     Parameters
     ----------
-    None
+    now : str
+        String with the current date
 
     Returns
     -------
@@ -232,9 +251,12 @@ def get_new_scan_id():
     """
 
     if VERBOSE:
-        print("get_last_scan_id")
+        print("get_new_scan_id")
+    logger.info("get_new_scan_id")
 
-    results = get_results(lambda x: int(x[-8:-4]), map)
+    results = get_results(lambda x: int(x[-8:-4]) if now in x else 0, map)
+
+    logger.debug(results)
 
     if results:
         # Sort reverse the list and get the first element, then sum one and fill it with
@@ -263,12 +285,17 @@ def validate_system():
 
     if VERBOSE:
         print("validate_system")
+    logger.info("validate_system")
 
     # Check for scap-security-guide suit which depens on oscap
     exit_code = subprocess.call(
         ["rpm", "-q", SCAP_SEC_TOOL],
-        stdout = (subprocess.DEVNULL if not VERBOSE else None),
-        stderr = (subprocess.DEVNULL if not VERBOSE else None)
+        stdout = (
+            subprocess.DEVNULL if logger.level >= logging.INFO or not VERBOSE else None
+            ),
+        stderr = (
+            subprocess.DEVNULL if logger.level >= logging.INFO or not VERBOSE else None
+            )
     )
 
     if exit_code != 0:
@@ -277,12 +304,16 @@ def validate_system():
 
     # Check for Oracle Linux Server 8
     is_ol8 = False
+    logger.debug("Inspecting OS")
     with open("/etc/os-release", "r", encoding="UTF-8") as file:
         is_ol8 = False
         for line in file:
+            line = line.replace("\n", "")
+            logger.debug(line)
             if "platform:el8" in line:
                 if VERBOSE:
                     print(f"validate_system : {line}")
+                logger.info("validate_system : %s", line)
                 is_ol8 = True
                 break
 
@@ -308,6 +339,7 @@ def set_environment():
 
     if VERBOSE:
         print("set_environment")
+    logger.info("set_environment")
 
     os.makedirs(SCAN_STIG_HOME_DIR, exist_ok=True)
 
@@ -333,28 +365,41 @@ def run_scan():
     """
     if VERBOSE:
         print("run_scan")
-
-    scan_id = get_new_scan_id()
+    logger.info("run_scan")
 
     # Get the starting date
     now = datetime.now().strftime("%d%m%Y%H%M%S")
+
+    if VERBOSE:
+        print(f"Current date is : {now}")
+    logger.debug("Current date is : %s", now)
+
+    scan_id = get_new_scan_id(now[:8])
 
     # Let oscap remove the files if they already exists
     tmp_result = f"/tmp/result_{now}{scan_id}.xml"
     tmp_report = f"/tmp/report_{now}{scan_id}.html"
 
-    print(f"Generating scan ID {now}{scan_id}")
+    print(f"Scan ID : {now}{scan_id}")
     # Form the command to scan the system using the STIG profile
     cmd = [
         "oscap", "xccdf", "eval", "--profile", STIG_PROFILE,
         "--results", tmp_result, "--report", tmp_report, DATA_STREAM_LOC
     ]
 
+    logger.debug("cmd : %s", cmd)
+
     # We don't care about STDOUT/
     exit_code = subprocess.call(cmd,
-        stdout = (subprocess.DEVNULL if not VERBOSE else None),
-        stderr = (subprocess.DEVNULL if not VERBOSE else None)
+        stdout = (
+            subprocess.DEVNULL if logger.level >= logging.INFO or not VERBOSE else None
+            ),
+        stderr = (
+            subprocess.DEVNULL if logger.level >= logging.INFO or not VERBOSE else None
+            )
     )
+
+    logger.debug("exit_code : %d", exit_code)
 
     # All rules passed
     if exit_code == 0:
@@ -391,8 +436,11 @@ def list_scans():
     """
     if VERBOSE:
         print("list_scans")
+    logger.info("list_scans")
 
     results = get_results(lambda x: x[-22:-4], map)
+
+    logger.debug(results)
 
     if results:
         print(f"{len(results)} scan IDs were found:")
@@ -401,7 +449,7 @@ def list_scans():
             print(f"\t{result}")
         return 0
 
-    print("Scans not found")
+    print("Scan IDs not found")
     return 1
 
 ###############################################################################################
@@ -427,8 +475,14 @@ def print_scan(args):
 
     if VERBOSE:
         print(f"print_scan : {scan_id}")
+    logger.info("print_scan : %s", scan_id)
 
     result = get_results(lambda x: scan_id in x)
+
+    if VERBOSE:
+        print(f"Scan IDs found : {len(result)}")
+    logger.debug("Scan IDs found : %d", len(result))
+    logger.debug(result)
 
     if len(result) == 1:
         report = Report(result[0])
@@ -468,6 +522,7 @@ def compare_scans(args):
 
     if VERBOSE:
         print(f"compare_scans : {scan_id1} {scan_id2}")
+    logger.info("compare_scans : %s %s", scan_id1, scan_id2)
 
     result1 = ""
     result2 = ""
