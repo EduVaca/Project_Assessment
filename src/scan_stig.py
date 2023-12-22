@@ -420,13 +420,16 @@ def run_scan():
 
 ###############################################################################################
 
-def list_scans():
+def list_scans(args):
     """ List history of executed scans printing scan ids
 
     Parameters
     ----------
     args : list
         List of passed arguments to the tool
+
+        args.all    : Print all rules and results for each report
+        args.failed : Print all failed rules for each report
 
     Returns
     -------
@@ -438,7 +441,11 @@ def list_scans():
         print("list_scans")
     logger.info("list_scans")
 
-    results = get_results(lambda x: x[-22:-4], map)
+    if args.all or args.failed:
+        results = get_results()
+    else:
+        results = get_results(lambda x: x[-22:-4], map)
+
 
     logger.debug(results)
 
@@ -446,7 +453,16 @@ def list_scans():
         print(f"{len(results)} scan IDs were found:")
         results.sort()
         for result in results:
-            print(f"\t{result}")
+            if args.all:
+                report = Report(result)
+                print(f"\nRerpot ID : {report}")
+                report.print_all_rules()
+            elif args.failed:
+                report = Report(result)
+                print(f"\nRerpot ID : {report}")
+                report.print_failed_rules()
+            else:
+                print(f"\t{result}")
         return 0
 
     print("Scan IDs not found")
@@ -462,7 +478,9 @@ def print_scan(args):
     args : list
         List of passed arguments to the tool
 
-        args.id[0] : Scan ID to print
+        args.id[0]  : Scan ID to print
+        args.all    : Print all rules and results
+        args.failed : Print all failed rules
 
     Returns
     -------
@@ -487,6 +505,10 @@ def print_scan(args):
     if len(result) == 1:
         report = Report(result[0])
         report.print_summary()
+        if args.all:
+            report.print_all_rules()
+        if args.failed:
+            report.print_failed_rules()
         return 0
 
     print(f"Scan id {scan_id} was not found")
@@ -582,8 +604,14 @@ The following commands are supported:
     list
        List history of executed scan IDs.
 
+       -f, --failed  Print all failed rules in all the reports available
+       -a, --all     Print all rules in all the reports available
+
     print [id]
        Print a given scan ID report.
+
+       -f, --failed  Print failed rules
+       -a, --all     Print all rules
 
     compare [id1, id2]
        Compare two given scan ID reports.
@@ -611,11 +639,25 @@ The following commands are supported:
 
     # List a previous scan IDs in the system
     parser_list = subparser.add_parser("list", help="List previous scans in the system")
+    parser_list.add_argument(
+        "-f", "--failed", default=False, action='store_true', help="Print all \
+        failed rules in all the reports available"
+        )
+    parser_list.add_argument(
+        "-a", "--all", default=False, action='store_true', help="Print all rules \
+        in all the reports available"
+        )
     parser_list.set_defaults(action="list", func=list_scans)
 
     # Print a given scan ID
     parser_print = subparser.add_parser("print", help="Print the given scan ID")
     parser_print.add_argument("id", nargs=1, type=validate_id, help="Scan ID to print")
+    parser_print.add_argument(
+        "-f", "--failed", default=False, action='store_true', help="Print failed rules"
+        )
+    parser_print.add_argument(
+        "-a", "--all", default=False, action='store_true', help="Print all rules"
+        )
     parser_print.set_defaults(action="print", func=print_scan)
 
     # Print two given scan IDs
@@ -657,7 +699,7 @@ if __name__ == '__main__':
     if settings.action == "scan":
         EXIT_CODE = settings.func()
     elif settings.action == "list":
-        EXIT_CODE = settings.func()
+        EXIT_CODE = settings.func(settings)
     elif settings.action == "print":
         EXIT_CODE = settings.func(settings)
     elif settings.action == "compare":

@@ -33,12 +33,16 @@ class Report():
         Returns the date of the report
     get_score() :
         Returns the score of the report
-    get_rules() :
+    get_raw_rules() :
         Returns the rules evaluated in the report
+    print_all_rules():
+        Print all rules in the report with its result
     get_passed_rules() :
         Returns the passed rules in the report
     get_failed_rules() :
         Returns the failed rules in the report
+    print_failed_rules():
+        Print all failed rules in the report
     print_summary() :
         Print a summary of the report results
     """
@@ -128,6 +132,23 @@ class Report():
         """
         return self.rules
 
+    def print_all_rules(self):
+        """ Print all rules in the report with its result
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        None
+        """
+
+        print(f"\nAll rules results ({len(self.rules)})\n")
+        for rule, result in self.rules.items():
+            print(f"\tRule\t: {rule}")
+            print(f"\tResult\t: {result}")
+
     def get_passed_rules(self):
         """ Returns the passed rules in the report
 
@@ -155,6 +176,22 @@ class Report():
             A list of all failed rules
         """
         return [ key for key, value in self.rules.items() if value == "fail" ]
+
+    def print_failed_rules(self):
+        """ Print all failed rules in the report
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        None
+        """
+
+        print(f"\nSummary of failed rules ({len(self.get_failed_rules())})\n")
+        for rule in self.get_failed_rules():
+            print(f"\tRule\t: {rule}")
 
     def print_summary(self):
         """ Print a summary of the report results
